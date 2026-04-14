@@ -6,6 +6,23 @@ interface Props {
   eodDate: string;
 }
 
+function downloadWithAuth(url: string, filename: string) {
+  const token = localStorage.getItem("token");
+  fetch(url, { headers: { Authorization: `Bearer ${token ?? ""}` } })
+    .then((res) => {
+      if (!res.ok) throw new Error("Download failed");
+      return res.blob();
+    })
+    .then((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    })
+    .catch(() => alert("Download failed — please try again"));
+}
+
 export default function FileDownload({ fileInfo, eodDate }: Props) {
   return (
     <div style={styles.container}>
@@ -36,17 +53,21 @@ export default function FileDownload({ fileInfo, eodDate }: Props) {
               {new Date(fileInfo.created_at).toLocaleString()}
             </span>
           </div>
-          <a
-            href={getFileDownloadUrl(eodDate)}
-            download
+          <button
+            onClick={() => downloadWithAuth(getFileDownloadUrl(eodDate), fileInfo.file_name)}
+            disabled={fileInfo.status !== "SUCCESS"}
             style={{
               ...styles.downloadBtn,
-              pointerEvents: fileInfo.status === "SUCCESS" ? "auto" : "none",
               opacity: fileInfo.status === "SUCCESS" ? 1 : 0.4,
+              cursor: fileInfo.status === "SUCCESS" ? "pointer" : "not-allowed",
+              border: "none",
             }}
           >
-            Download NSI File
-          </a>
+            Download NSI (Technical)
+          </button>
+          <p style={{ fontSize: 11, color: "#6b7280", marginTop: 8 }}>
+            Per-bank PDF statements available in the Statements section below.
+          </p>
         </div>
       )}
     </div>

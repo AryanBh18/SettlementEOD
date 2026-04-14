@@ -5,6 +5,12 @@ import uuid
 
 from app.config import settings
 from app.routers import eod, transactions
+from app.routers import auth as auth_router
+from app.routers import upload as upload_router
+from app.routers import audit as audit_router
+from app.routers import settings_router
+from app.routers import simulation as simulation_router
+from app.routers import cutoff as cutoff_router
 
 app = FastAPI(
     title="EOD Settlement System",
@@ -45,8 +51,14 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Register routers
+app.include_router(auth_router.router)
 app.include_router(eod.router)
 app.include_router(transactions.router)
+app.include_router(upload_router.router)
+app.include_router(audit_router.router)
+app.include_router(settings_router.router)
+app.include_router(simulation_router.router)
+app.include_router(cutoff_router.router)
 
 
 @app.get("/", tags=["Health"])

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.auth.security import get_current_user
+from app.models.user import User
 from app.repositories.transaction_repo import TransactionRepo
 from app.schemas.transaction import TransactionResponse
 
@@ -14,7 +16,9 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 async def get_transactions(
     txn_date: date,
     status: str | None = Query(None, description="Filter by status: SUCCESS, FAILED, REVERSED"),
+    transaction_type: str | None = Query(None, description="Filter by type: ATM, POS, WIRE, TRANSFER, OTHER"),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     repo = TransactionRepo(db)
 
@@ -37,6 +41,7 @@ async def get_transactions(
             destination_bank_name=txn.destination_bank.name,
             amount=txn.amount,
             status=txn.status,
+            transaction_type=txn.transaction_type,
             transaction_date=txn.transaction_date,
             created_at=txn.created_at,
         )

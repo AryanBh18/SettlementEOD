@@ -30,8 +30,9 @@ if (-not (Test-Path $genDir)) {
 
 Write-Host "[1/2] Starting Backend  --> http://localhost:8000" -ForegroundColor Green
 Write-Host "      API Docs          --> http://localhost:8000/docs" -ForegroundColor DarkGray
+$uvicorn = Join-Path $root ".venv\Scripts\uvicorn.exe"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", `
-    "cd '$backendPath'; `$host.UI.RawUI.WindowTitle = 'EOD Backend'; uvicorn app.main:app --reload"
+    "cd '$backendPath'; `$host.UI.RawUI.WindowTitle = 'EOD Backend'; & '$uvicorn' app.main:app --reload"
 
 Start-Sleep -Seconds 2
 

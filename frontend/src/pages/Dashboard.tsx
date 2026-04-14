@@ -1,17 +1,26 @@
 import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getEODStatus, type EODStatusResponse } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import EODRunPanel from "../components/EODRunPanel";
 import SummaryCard from "../components/SummaryCard";
 import ValidationChecks from "../components/ValidationChecks";
 import BankPositionsTable from "../components/BankPositionsTable";
 import ProcessLogs from "../components/ProcessLogs";
 import FileDownload from "../components/FileDownload";
+import CSVUpload from "../components/CSVUpload";
+import AuditLog from "../components/AuditLog";
+import ReportExport from "../components/ReportExport";
+import SimulationPanel from "../components/SimulationPanel";
+import CutoffPanel from "../components/CutoffPanel";
+import BilateralSettlementsTable from "../components/BilateralSettlementsTable";
+import BankStatementView from "../components/BankStatementView";
 
 export default function Dashboard() {
   const today = new Date().toISOString().slice(0, 10);
   const [selectedDate, setSelectedDate] = useState(today);
   const [refreshKey, setRefreshKey] = useState(0);
+  const { user, logout, isAdmin, isOperator } = useAuth();
 
   const { data, isLoading, isError, error } = useQuery<EODStatusResponse>({
     queryKey: ["eodStatus", selectedDate, refreshKey],
@@ -35,10 +44,30 @@ export default function Dashboard() {
             onChange={(e) => setSelectedDate(e.target.value)}
             style={styles.dateInput}
           />
+          <span style={{ fontSize: 13, opacity: 0.8, marginLeft: 12 }}>
+            {user?.username} ({user?.role})
+          </span>
+          <button onClick={logout} style={{ padding: "4px 10px", cursor: "pointer", background: "#ef4444", color: "#fff", border: "none", borderRadius: 4, marginLeft: 8 }}>
+            Logout
+          </button>
         </div>
       </header>
 
       <main style={styles.main}>
+        {/* Row 0: Simulation + Cutoff (admin/operator only) */}
+        {(isAdmin || isOperator) && (
+          <div style={styles.twoCol}>
+            <SimulationPanel
+              selectedDate={selectedDate}
+              onSimulationComplete={handleRunComplete}
+            />
+            <CutoffPanel
+              selectedDate={selectedDate}
+              onCutoffComplete={handleRunComplete}
+            />
+          </div>
+        )}
+
         {/* Row 1: Run Panel */}
         <EODRunPanel
           selectedDate={selectedDate}
@@ -79,10 +108,27 @@ export default function Dashboard() {
             {/* Row 4: Bank positions */}
             <BankPositionsTable positions={data.bank_positions} />
 
-            {/* Row 5: Logs */}
+            {/* Row 5: Bilateral Settlements */}
+            <BilateralSettlementsTable eodDate={selectedDate} refreshKey={refreshKey} />
+
+            {/* Row 6: Per-Bank Statements */}
+            <BankStatementView eodDate={selectedDate} refreshKey={refreshKey} />
+
+            {/* Row 7: Logs */}
             <ProcessLogs logs={data.process_logs} />
+
+            {/* Report Export */}
+            <div style={{ display: "flex", gap: 12 }}>
+              <ReportExport eodDate={selectedDate} />
+            </div>
           </>
         )}
+
+        {/* CSV Upload (admin/operator only) */}
+        {(isAdmin || isOperator) && <CSVUpload />}
+
+        {/* Audit Log (admin only) */}
+        {isAdmin && <AuditLog />}
       </main>
     </div>
   );

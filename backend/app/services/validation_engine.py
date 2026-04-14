@@ -23,6 +23,7 @@ class ValidationEngine:
         total_debit: Decimal,
         total_credit: Decimal,
         transacting_bank_ids: set[int],
+        references: list[str] | None = None,
     ) -> list[ValidationCheck]:
         checks: list[ValidationCheck] = []
 
@@ -32,6 +33,8 @@ class ValidationEngine:
         checks.append(ValidationEngine._check_null_values(instructions))
         checks.append(ValidationEngine._check_decimal_precision(instructions))
         checks.append(ValidationEngine._check_trailer_hash(file_content))
+        if references is not None:
+            checks.append(ValidationEngine._check_duplicate_references(references))
 
         return checks
 
@@ -147,4 +150,26 @@ class ValidationEngine:
             "TRAILER_HASH",
             "FAIL",
             f"Trailer hash={trailer_hash:.2f}, recalculated={recalculated:.2f}",
+        )
+
+    @staticmethod
+    def _check_duplicate_references(references: list[str]) -> ValidationCheck:
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for ref in references:
+            if ref in seen:
+                duplicates.add(ref)
+            seen.add(ref)
+
+        if duplicates:
+            sample = sorted(duplicates)[:5]
+            return ValidationCheck(
+                "DUPLICATE_CHECK",
+                "FAIL",
+                f"Found {len(duplicates)} duplicate reference(s): {', '.join(sample)}",
+            )
+        return ValidationCheck(
+            "DUPLICATE_CHECK",
+            "PASS",
+            f"No duplicate references among {len(references)} transactions",
         )

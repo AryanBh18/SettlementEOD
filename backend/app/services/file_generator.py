@@ -56,6 +56,146 @@ class FileGenerator:
         return file_name, str(file_path)
 
     @staticmethod
+    def generate_bank_statement_pdf(
+        eod_date: date,
+        bank_code: str,
+        bank_name: str,
+        total_debit: Decimal,
+        total_credit: Decimal,
+        net_position: Decimal,
+        breakdown: list[dict],
+    ) -> bytes:
+        """
+        Generate a PDF settlement statement for a single bank.
+        Returns the PDF content as bytes.
+        """
+        import io
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=2 * cm,
+            rightMargin=2 * cm,
+            topMargin=2 * cm,
+            bottomMargin=2 * cm,
+        )
+        styles = getSampleStyleSheet()
+        story = []
+
+        # ── Title block ──
+        title_style = ParagraphStyle(
+            "title", parent=styles["Heading1"], fontSize=18, spaceAfter=4,
+            textColor=colors.HexColor("#1e293b"),
+        )
+        subtitle_style = ParagraphStyle(
+            "subtitle", parent=styles["Normal"], fontSize=11, spaceAfter=2,
+            textColor=colors.HexColor("#475569"),
+        )
+        story.append(Paragraph("Settlement Statement", title_style))
+        story.append(Paragraph(f"Bank: <b>{bank_code}</b> — {bank_name}", subtitle_style))
+        story.append(Paragraph(f"Settlement Date: <b>{eod_date.strftime('%d %B %Y')}</b>", subtitle_style))
+        story.append(Paragraph(
+            f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            ParagraphStyle("ts", parent=styles["Normal"], fontSize=9, textColor=colors.grey)
+        ))
+        story.append(Spacer(1, 0.5 * cm))
+
+        # ── Summary table ──
+        net = float(net_position)
+        net_color = colors.HexColor("#059669") if net >= 0 else colors.HexColor("#dc2626")
+        summary_data = [
+            ["Total Debit (Payable)", f"{total_debit:,.2f}"],
+            ["Total Credit (Receivable)", f"{total_credit:,.2f}"],
+            ["Net Position", f"{'+ ' if net > 0 else ''}{net_position:,.2f}"],
+        ]
+        summary_table = Table(summary_data, colWidths=[9 * cm, 6 * cm])
+        summary_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+            ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#f0fdf4") if net >= 0 else colors.HexColor("#fef2f2")),
+            ("TEXTCOLOR", (1, 2), (1, 2), net_color),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+            ("FONTNAME", (1, 0), (1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 11),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#e2e8f0")),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        story.append(summary_table)
+        story.append(Spacer(1, 0.6 * cm))
+
+        # ── Counterparty breakdown heading ──
+        story.append(Paragraph(
+            "Counterparty Breakdown",
+            ParagraphStyle("section", parent=styles["Heading2"], fontSize=13,
+                           textColor=colors.HexColor("#1e293b"), spaceBefore=4, spaceAfter=8)
+        ))
+
+        if not breakdown:
+            story.append(Paragraph("No counterparty data available.", styles["Normal"]))
+        else:
+            hdr_style = ParagraphStyle("th", parent=styles["Normal"], fontSize=9,
+                                       textColor=colors.white, fontName="Helvetica-Bold")
+            cell_style = ParagraphStyle("td", parent=styles["Normal"], fontSize=10)
+
+            table_data = [[
+                Paragraph("Counterparty", hdr_style),
+                Paragraph("Gross Payable", hdr_style),
+                Paragraph("Gross Receivable", hdr_style),
+                Paragraph("Net Amount", hdr_style),
+                Paragraph("Direction", hdr_style),
+            ]]
+            for row in breakdown:
+                direction = row.get("net_direction", "")
+                dir_text = "Even" if direction == "ZERO" else direction
+                table_data.append([
+                    Paragraph(f"<b>{row['bank_code']}</b><br/><font size='8' color='grey'>{row['bank_name']}</font>", cell_style),
+                    Paragraph(f"{float(row['gross_payable']):,.2f}", cell_style),
+                    Paragraph(f"{float(row['gross_receivable']):,.2f}", cell_style),
+                    Paragraph(f"<b>{float(row['net_amount']):,.2f}</b>", cell_style),
+                    Paragraph(dir_text, cell_style),
+                ])
+
+            col_widths = [5.5 * cm, 3.5 * cm, 3.5 * cm, 3 * cm, 2.5 * cm]
+            detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+            detail_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+                ("ALIGN", (1, 0), (3, -1), "RIGHT"),
+                ("ALIGN", (4, 0), (4, -1), "CENTER"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#e2e8f0")),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ]))
+            story.append(detail_table)
+
+        # ── Footer ──
+        story.append(Spacer(1, 1 * cm))
+        story.append(Paragraph(
+            "This document is a system-generated settlement statement. All amounts in local currency.",
+            ParagraphStyle("footer", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+        ))
+
+        doc.build(story)
+        return buffer.getvalue()
+
+    @staticmethod
     def read_nsi_file(file_path: str) -> str:
         return Path(file_path).read_text(encoding="utf-8")
 
@@ -89,5 +229,58 @@ class FileGenerator:
                     "record_count": int(parts[3]),
                     "hash_total": Decimal(parts[4]),
                 }
+
+        return result
+
+    @staticmethod
+    def generate_per_bank_files(
+        eod_date: date,
+        positions: dict,
+        instructions: list[SettlementInstruction],
+    ) -> dict[str, tuple[str, str, Decimal, Decimal]]:
+        """
+        Generate separate NSI files per bank.
+
+        Returns:
+            dict mapping bank_code -> (file_name, file_path, debit, credit)
+        """
+        from app.services.clearing_engine import BankPosition
+
+        # Group instructions by bank code
+        bank_instructions: dict[str, list[SettlementInstruction]] = {}
+        for instr in instructions:
+            bank_instructions.setdefault(instr.bank_code, []).append(instr)
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        date_str = eod_date.strftime("%Y%m%d")
+        output_dir = Path(settings.OUTPUT_DIR)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        result: dict[str, tuple[str, str, Decimal, Decimal]] = {}
+
+        for bank_code, instrs in bank_instructions.items():
+            file_name = f"{settings.EOD_FILE_PREFIX}_{bank_code}_{date_str}_{timestamp}.nsi"
+            file_path = output_dir / file_name
+
+            debit = sum(i.amount for i in instrs if i.instruction_type == "D")
+            credit = sum(i.amount for i in instrs if i.instruction_type == "C")
+            record_count = len(instrs)
+            generation_ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+
+            lines: list[str] = []
+            lines.append(f"HDR|{settings.EOD_FILE_PREFIX}|{date_str}|{record_count}|{generation_ts}|{bank_code}")
+
+            hash_total = Decimal("0.00")
+            for seq, instr in enumerate(instrs, start=1):
+                amount_str = f"{instr.amount:.2f}".rjust(15)
+                lines.append(
+                    f"DTL|{seq:04d}|{instr.bank_code}|{amount_str}|{instr.instruction_type}|{instr.bank_name}"
+                )
+                hash_total += abs(instr.amount)
+
+            lines.append(f"TRL|{debit:.2f}|{credit:.2f}|{record_count}|{hash_total:.2f}")
+            file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            result[bank_code] = (file_name, str(file_path), debit, credit)
 
         return result

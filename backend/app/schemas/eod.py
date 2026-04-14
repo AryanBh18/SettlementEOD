@@ -9,6 +9,7 @@ from pydantic import BaseModel
 class EODRunRequest(BaseModel):
     eod_date: date
     force_rerun: bool = False
+    max_retries: int = 0
 
 
 # --- Response sub-models ---

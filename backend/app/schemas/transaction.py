@@ -13,6 +13,7 @@ class TransactionResponse(BaseModel):
     destination_bank_name: str
     amount: Decimal
     status: str
+    transaction_type: str
     transaction_date: date
     created_at: datetime
 
