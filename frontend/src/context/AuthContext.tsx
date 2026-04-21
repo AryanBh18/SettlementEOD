@@ -22,7 +22,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
+  const [token, setToken] = useState<string | null>(sessionStorage.getItem("token"));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getMe()
         .then(setUser)
         .catch(() => {
-          localStorage.removeItem("token");
+          sessionStorage.removeItem("token");
           setToken(null);
           setUser(null);
         })
@@ -42,14 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     const res = await loginApi(username, password);
-    localStorage.setItem("token", res.access_token);
+    sessionStorage.setItem("token", res.access_token);
     setToken(res.access_token);
     const me = await getMe();
     setUser(me);
   };
 
   const logout = () => {
-    localStorage.removeItem("token");
+    sessionStorage.removeItem("token");
     setToken(null);
     setUser(null);
   };
@@ -76,3 +76,4 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
+

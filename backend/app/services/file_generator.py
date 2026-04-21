@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services.settlement_engine import SettlementInstruction
+from app.utils.timezone import now_sr
 
 
 class FileGenerator:
@@ -21,7 +22,7 @@ class FileGenerator:
         Returns:
             (file_name, file_path)
         """
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        timestamp = now_sr().strftime("%Y%m%d%H%M%S")
         date_str = eod_date.strftime("%Y%m%d")
         file_name = f"{settings.EOD_FILE_PREFIX}_{date_str}_{timestamp}.nsi"
 
@@ -30,7 +31,7 @@ class FileGenerator:
         file_path = output_dir / file_name
 
         record_count = len(instructions)
-        generation_ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+        generation_ts = now_sr().strftime("%Y-%m-%dT%H:%M:%S")
 
         lines: list[str] = []
 
@@ -97,11 +98,11 @@ class FileGenerator:
             "subtitle", parent=styles["Normal"], fontSize=11, spaceAfter=2,
             textColor=colors.HexColor("#475569"),
         )
-        story.append(Paragraph("Settlement Statement", title_style))
+        story.append(Paragraph("Clearing &amp; Settlement Statement", title_style))
         story.append(Paragraph(f"Bank: <b>{bank_code}</b> — {bank_name}", subtitle_style))
         story.append(Paragraph(f"Settlement Date: <b>{eod_date.strftime('%d %B %Y')}</b>", subtitle_style))
         story.append(Paragraph(
-            f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            f"Generated: {now_sr().strftime('%Y-%m-%d %H:%M:%S')} (Suriname Time)",
             ParagraphStyle("ts", parent=styles["Normal"], fontSize=9, textColor=colors.grey)
         ))
         story.append(Spacer(1, 0.5 * cm))
@@ -196,6 +197,187 @@ class FileGenerator:
         return buffer.getvalue()
 
     @staticmethod
+    def generate_clearing_summary_pdf(
+        eod_date: date,
+        bank_positions: list[dict],
+        bilateral_data: list[dict],
+        total_debit: Decimal,
+        total_credit: Decimal,
+    ) -> bytes:
+        """
+        Generate a PDF clearing summary report showing all banks' net positions and bilateral netting.
+        bank_positions dicts: {bank_code, bank_name, total_incoming, total_outgoing, net_position}
+        bilateral_data dicts: {bank_a_code, bank_a_name, bank_b_code, bank_b_name, bank_a_owes_b, bank_b_owes_a, net_amount, net_direction}
+        Returns the PDF content as bytes.
+        """
+        import io
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=2 * cm,
+            rightMargin=2 * cm,
+            topMargin=2 * cm,
+            bottomMargin=2 * cm,
+        )
+        styles = getSampleStyleSheet()
+        story = []
+
+        title_style = ParagraphStyle(
+            "title", parent=styles["Heading1"], fontSize=18, spaceAfter=4,
+            textColor=colors.HexColor("#1e293b"),
+        )
+        subtitle_style = ParagraphStyle(
+            "subtitle", parent=styles["Normal"], fontSize=11, spaceAfter=2,
+            textColor=colors.HexColor("#475569"),
+        )
+        section_style = ParagraphStyle(
+            "section", parent=styles["Heading2"], fontSize=13,
+            textColor=colors.HexColor("#1e293b"), spaceBefore=12, spaceAfter=6,
+        )
+        hdr_style = ParagraphStyle("th", parent=styles["Normal"], fontSize=9,
+                                   textColor=colors.white, fontName="Helvetica-Bold")
+        cell_style = ParagraphStyle("td", parent=styles["Normal"], fontSize=10)
+
+        # ── Title block ──
+        story.append(Paragraph("Clearing Summary Report", title_style))
+        story.append(Paragraph(f"Settlement Date: <b>{eod_date.strftime('%d %B %Y')}</b>", subtitle_style))
+        story.append(Paragraph(
+            f"Generated: {now_sr().strftime('%Y-%m-%d %H:%M:%S')} (Suriname Time)",
+            ParagraphStyle("ts", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
+        ))
+        story.append(Spacer(1, 0.5 * cm))
+
+        # ── System totals ──
+        story.append(Paragraph("System Totals", section_style))
+        totals_data = [
+            ["Total Debit (Payable)", f"{total_debit:,.2f}"],
+            ["Total Credit (Receivable)", f"{total_credit:,.2f}"],
+            ["Net Balance", f"{(total_credit - total_debit):,.2f}"],
+        ]
+        totals_table = Table(totals_data, colWidths=[9 * cm, 6 * cm])
+        totals_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+            ("FONTNAME", (1, 0), (1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 11),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#e2e8f0")),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        story.append(totals_table)
+        story.append(Spacer(1, 0.4 * cm))
+
+        # ── Net Clearing Positions ──
+        story.append(Paragraph("Net Clearing Positions", section_style))
+        if not bank_positions:
+            story.append(Paragraph("No clearing position data available.", styles["Normal"]))
+        else:
+            pos_header = [[
+                Paragraph("Bank Code", hdr_style),
+                Paragraph("Bank Name", hdr_style),
+                Paragraph("As Acquirer (Incoming)", hdr_style),
+                Paragraph("As Issuer (Outgoing)", hdr_style),
+                Paragraph("Net Position", hdr_style),
+                Paragraph("Instruction", hdr_style),
+            ]]
+            pos_rows = []
+            for p in bank_positions:
+                net = float(p["net_position"])
+                instruction = "CR" if net > 0 else ("DR" if net < 0 else "ZERO")
+                net_color = colors.HexColor("#059669") if net > 0 else (colors.HexColor("#dc2626") if net < 0 else colors.HexColor("#374151"))
+                pos_rows.append([
+                    Paragraph(f"<b>{p['bank_code']}</b>", cell_style),
+                    Paragraph(p["bank_name"], cell_style),
+                    Paragraph(f"{float(p['total_incoming']):,.2f}", cell_style),
+                    Paragraph(f"{float(p['total_outgoing']):,.2f}", cell_style),
+                    Paragraph(f"<b>{'+' if net > 0 else ''}{net:,.2f}</b>", cell_style),
+                    Paragraph(f"<b><font color='{'#059669' if net > 0 else '#dc2626'}'>{instruction}</font></b>", cell_style),
+                ])
+            pos_table = Table(pos_header + pos_rows, colWidths=[2.5 * cm, 4 * cm, 3 * cm, 3 * cm, 2.8 * cm, 2 * cm], repeatRows=1)
+            pos_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+                ("ALIGN", (2, 0), (4, -1), "RIGHT"),
+                ("ALIGN", (5, 0), (5, -1), "CENTER"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#e2e8f0")),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ]))
+            story.append(pos_table)
+
+        story.append(Spacer(1, 0.4 * cm))
+
+        # ── Bilateral Netting ──
+        story.append(Paragraph("Bilateral Netting", section_style))
+        if not bilateral_data:
+            story.append(Paragraph("No bilateral netting data available.", styles["Normal"]))
+        else:
+            bi_header = [[
+                Paragraph("Issuer (Bank A)", hdr_style),
+                Paragraph("Acquirer (Bank B)", hdr_style),
+                Paragraph("A Owes B", hdr_style),
+                Paragraph("B Owes A", hdr_style),
+                Paragraph("Net Amount", hdr_style),
+                Paragraph("Direction", hdr_style),
+            ]]
+            bi_rows = []
+            for b in bilateral_data:
+                direction = b["net_direction"]
+                dir_text = "Even" if direction == "ZERO" else direction.replace("_", " → ")
+                bi_rows.append([
+                    Paragraph(f"<b>{b['bank_a_code']}</b><br/><font size='8' color='grey'>{b['bank_a_name']}</font>", cell_style),
+                    Paragraph(f"<b>{b['bank_b_code']}</b><br/><font size='8' color='grey'>{b['bank_b_name']}</font>", cell_style),
+                    Paragraph(f"{float(b['bank_a_owes_b']):,.2f}", cell_style),
+                    Paragraph(f"{float(b['bank_b_owes_a']):,.2f}", cell_style),
+                    Paragraph(f"<b>{float(b['net_amount']):,.2f}</b>", cell_style),
+                    Paragraph(dir_text, cell_style),
+                ])
+            bi_table = Table(bi_header + bi_rows, colWidths=[3 * cm, 3 * cm, 2.8 * cm, 2.8 * cm, 2.8 * cm, 2.8 * cm], repeatRows=1)
+            bi_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+                ("ALIGN", (2, 0), (4, -1), "RIGHT"),
+                ("ALIGN", (5, 0), (5, -1), "CENTER"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#e2e8f0")),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ]))
+            story.append(bi_table)
+
+        # ── Footer ──
+        story.append(Spacer(1, 1 * cm))
+        story.append(Paragraph(
+            "This document is a system-generated clearing summary report. All amounts in local currency.",
+            ParagraphStyle("footer", parent=styles["Normal"], fontSize=8, textColor=colors.grey),
+        ))
+
+        doc.build(story)
+        return buffer.getvalue()
+
+    @staticmethod
     def read_nsi_file(file_path: str) -> str:
         return Path(file_path).read_text(encoding="utf-8")
 
@@ -251,7 +433,7 @@ class FileGenerator:
         for instr in instructions:
             bank_instructions.setdefault(instr.bank_code, []).append(instr)
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        timestamp = now_sr().strftime("%Y%m%d%H%M%S")
         date_str = eod_date.strftime("%Y%m%d")
         output_dir = Path(settings.OUTPUT_DIR)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -265,7 +447,7 @@ class FileGenerator:
             debit = sum(i.amount for i in instrs if i.instruction_type == "D")
             credit = sum(i.amount for i in instrs if i.instruction_type == "C")
             record_count = len(instrs)
-            generation_ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+            generation_ts = now_sr().strftime("%Y-%m-%dT%H:%M:%S")
 
             lines: list[str] = []
             lines.append(f"HDR|{settings.EOD_FILE_PREFIX}|{date_str}|{record_count}|{generation_ts}|{bank_code}")

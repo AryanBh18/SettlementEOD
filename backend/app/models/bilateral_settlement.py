@@ -5,6 +5,7 @@ from sqlalchemy import String, Date, DateTime, Numeric, ForeignKey, Integer, Uni
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.timezone import now_sr
 
 
 class BilateralSettlement(Base):
@@ -22,7 +23,7 @@ class BilateralSettlement(Base):
     bank_b_owes_a: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0.00"))
     net_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0.00"))
     net_direction: Mapped[str] = mapped_column(String(10), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_sr)
 
     bank_a: Mapped["Bank"] = relationship(foreign_keys=[bank_a_id])  # noqa: F821
     bank_b: Mapped["Bank"] = relationship(foreign_keys=[bank_b_id])  # noqa: F821

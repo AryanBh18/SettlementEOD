@@ -8,6 +8,7 @@ from app.models.bank import Bank
 from app.models.cutoff_log import CutoffLog
 from app.repositories.cutoff_repo import CutoffRepo
 from app.repositories.log_repo import LogRepo
+from app.utils.timezone import now_sr
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class CutoffService:
 
         cutoff = CutoffLog(
             settlement_date=settlement_date,
-            cutoff_timestamp=datetime.utcnow(),
+            cutoff_timestamp=now_sr(),
             triggered_by=user_id,
             status="ACTIVE",
             message=f"Cutoff triggered for settlement date {settlement_date}",

@@ -9,7 +9,7 @@ const api = axios.create({
 
 // Auth interceptor — attach JWT token to all requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
+  const token = sessionStorage.getItem("token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -21,8 +21,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }
@@ -126,6 +126,12 @@ export interface CutoffStatus {
   cutoff_timestamp: string;
   status: string;
   message: string | null;
+}
+
+export interface CutoffSchedule {
+  cutoff_time: string;
+  is_auto_enabled: boolean;
+  updated_at: string;
 }
 
 // --- Bilateral Settlement ---
@@ -232,6 +238,11 @@ export async function simulateTransactions(count: number, target_date: string): 
   return res.data;
 }
 
+export async function clearAllTransactions(): Promise<{ deleted: number }> {
+  const res = await api.delete("/simulation/clear-all");
+  return res.data;
+}
+
 // --- Cutoff ---
 export async function triggerCutoff(settlement_date: string): Promise<CutoffStatus> {
   const res = await api.post("/cutoff/trigger", { settlement_date });
@@ -240,6 +251,16 @@ export async function triggerCutoff(settlement_date: string): Promise<CutoffStat
 
 export async function getCutoffStatus(settlement_date: string): Promise<CutoffStatus | null> {
   const res = await api.get(`/cutoff/status/${settlement_date}`);
+  return res.data;
+}
+
+export async function getCutoffSchedule(): Promise<CutoffSchedule | null> {
+  const res = await api.get("/cutoff/schedule");
+  return res.data;
+}
+
+export async function saveCutoffSchedule(cutoff_time: string, is_auto_enabled: boolean): Promise<CutoffSchedule> {
+  const res = await api.post("/cutoff/schedule", { cutoff_time, is_auto_enabled });
   return res.data;
 }
 
@@ -263,4 +284,13 @@ export function getBankStatementPdfUrl(eod_date: string, bank_code: string): str
   return `${API_BASE}/eod/statements/${eod_date}/${bank_code}/pdf`;
 }
 
+export function getClearingSummaryPdfUrl(eod_date: string): string {
+  return `${API_BASE}/eod/statements/${eod_date}/summary-pdf`;
+}
+
+export function getAllPdfsZipUrl(eod_date: string): string {
+  return `${API_BASE}/eod/statements/${eod_date}/all-pdfs`;
+}
+
 export default api;
+

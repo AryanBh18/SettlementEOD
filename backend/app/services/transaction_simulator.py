@@ -4,11 +4,17 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank import Bank
+from app.models.bilateral_settlement import BilateralSettlement
+from app.models.clearing_result import ClearingResult
+from app.models.cutoff_log import CutoffLog
+from app.models.process_log import ProcessLog
+from app.models.settlement_file import SettlementFile
 from app.models.transaction import Transaction
+from app.models.validation_result import ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +64,21 @@ class TransactionSimulator:
             "skipped": skipped,
             "total_requested": count,
         }
+
+    async def clear_all_transactions(self) -> dict:
+        """Delete all transactions and all derived EOD results from the database."""
+        # Delete in dependency order (child tables first)
+        await self.db.execute(delete(BilateralSettlement))
+        await self.db.execute(delete(ClearingResult))
+        await self.db.execute(delete(ValidationResult))
+        await self.db.execute(delete(ProcessLog))
+        await self.db.execute(delete(SettlementFile))
+        await self.db.execute(delete(CutoffLog))
+        result = await self.db.execute(delete(Transaction))
+        deleted = result.rowcount
+        await self.db.flush()
+        logger.warning(f"Cleared {deleted} transactions and all EOD results from database")
+        return {"deleted": deleted}
 
     async def _get_all_banks(self) -> list[Bank]:
         stmt = select(Bank).order_by(Bank.id)

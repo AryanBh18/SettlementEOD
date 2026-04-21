@@ -5,6 +5,7 @@ from sqlalchemy import Date, DateTime, Numeric, ForeignKey, Integer, UniqueConst
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.timezone import now_sr
 
 
 class ClearingResult(Base):
@@ -17,6 +18,6 @@ class ClearingResult(Base):
     total_outgoing: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0.00"))
     net_position: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0.00"))
     eod_date: Mapped[date] = mapped_column(Date, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_sr)
 
     bank: Mapped["Bank"] = relationship(back_populates="clearing_results")  # noqa: F821

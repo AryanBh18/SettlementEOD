@@ -1,10 +1,18 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.transaction import Transaction
 
 from app.services.clearing_engine import BankPosition
 from app.services.file_generator import FileGenerator
 from app.services.settlement_engine import SettlementInstruction
+
+VALID_TRANSACTION_TYPES = {"ATM", "POS"}
 
 
 @dataclass
@@ -24,9 +32,12 @@ class ValidationEngine:
         total_credit: Decimal,
         transacting_bank_ids: set[int],
         references: list[str] | None = None,
+        transactions: list[Transaction] | None = None,
     ) -> list[ValidationCheck]:
         checks: list[ValidationCheck] = []
 
+        if transactions is not None:
+            checks.append(ValidationEngine._check_transaction_quality(transactions))
         checks.append(ValidationEngine._check_balance(total_debit, total_credit))
         checks.append(ValidationEngine._check_file_structure(file_content))
         checks.append(ValidationEngine._check_bank_completeness(positions, transacting_bank_ids))
@@ -43,6 +54,41 @@ class ValidationEngine:
         return all(c.status == "PASS" for c in checks)
 
     # --- Individual checks ---
+
+    @staticmethod
+    def _check_transaction_quality(transactions: list[Transaction]) -> ValidationCheck:
+        same_bank: list[str] = []
+        zero_amount: list[str] = []
+        bad_type: list[str] = []
+
+        for txn in transactions:
+            ref = txn.reference or f"id={txn.id}"
+            if txn.source_bank_id == txn.destination_bank_id:
+                same_bank.append(ref)
+            if txn.amount == Decimal("0.00"):
+                zero_amount.append(ref)
+            if txn.transaction_type not in VALID_TRANSACTION_TYPES:
+                bad_type.append(f"{ref}({txn.transaction_type})")
+
+        issues: list[str] = []
+        if same_bank:
+            issues.append(f"{len(same_bank)} same-bank transaction(s): {', '.join(same_bank[:3])}")
+        if zero_amount:
+            issues.append(f"{len(zero_amount)} zero-amount transaction(s): {', '.join(zero_amount[:3])}")
+        if bad_type:
+            issues.append(f"{len(bad_type)} unrecognised type(s): {', '.join(bad_type[:3])}")
+
+        if issues:
+            return ValidationCheck(
+                "TRANSACTION_QUALITY",
+                "FAIL",
+                "Invalid transactions detected — " + "; ".join(issues),
+            )
+        return ValidationCheck(
+            "TRANSACTION_QUALITY",
+            "PASS",
+            f"All {len(transactions)} transactions passed quality checks",
+        )
 
     @staticmethod
     def _check_balance(total_debit: Decimal, total_credit: Decimal) -> ValidationCheck:

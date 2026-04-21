@@ -1,105 +1,48 @@
-import { getFileDownloadUrl } from "../api/client";
+import { getAllPdfsZipUrl } from "../api/client";
 import type { FileInfo } from "../api/client";
 
-interface Props {
-  fileInfo: FileInfo | null;
-  eodDate: string;
-}
+interface Props { fileInfo: FileInfo | null; eodDate: string; }
 
 function downloadWithAuth(url: string, filename: string) {
-  const token = localStorage.getItem("token");
+  const token = sessionStorage.getItem("token");
   fetch(url, { headers: { Authorization: `Bearer ${token ?? ""}` } })
-    .then((res) => {
-      if (!res.ok) throw new Error("Download failed");
-      return res.blob();
-    })
-    .then((blob) => {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    })
-    .catch(() => alert("Download failed — please try again"));
+    .then((res) => { if (!res.ok) throw new Error("Download failed"); return res.blob(); })
+    .then((blob) => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); URL.revokeObjectURL(a.href); })
+    .catch(() => alert("Download failed. Please try again."));
 }
 
 export default function FileDownload({ fileInfo, eodDate }: Props) {
+  const canDownload = !!fileInfo && fileInfo.status === "SUCCESS";
   return (
-    <div style={styles.container}>
-      <h3 style={styles.title}>Settlement File</h3>
+    <div className="bg-white rounded-xl border border-[--color-outline-variant] shadow-sm p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <span className="material-symbols-outlined text-[--color-outline]">folder_zip</span>
+        <h3 className="font-display font-semibold text-[--color-on-surface] text-base">Clearing Reports</h3>
+      </div>
       {!fileInfo ? (
-        <p style={styles.empty}>No file generated yet</p>
+        <p className="text-[--color-outline] text-sm">No reports generated yet. Run EOD first.</p>
       ) : (
-        <div>
-          <div style={styles.detail}>
-            <span style={styles.label}>File:</span>
-            <span style={styles.value}>{fileInfo.file_name}</span>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[--color-on-surface-variant]">Status</span>
+            <span className={`font-semibold ${fileInfo.status === "SUCCESS" ? "text-[--color-success]" : "text-[--color-error]"}`}>{fileInfo.status}</span>
           </div>
-          <div style={styles.detail}>
-            <span style={styles.label}>Status:</span>
-            <span
-              style={{
-                ...styles.value,
-                color: fileInfo.status === "SUCCESS" ? "#059669" : "#dc2626",
-                fontWeight: 600,
-              }}
-            >
-              {fileInfo.status}
-            </span>
-          </div>
-          <div style={styles.detail}>
-            <span style={styles.label}>Generated:</span>
-            <span style={styles.value}>
-              {new Date(fileInfo.created_at).toLocaleString()}
-            </span>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[--color-on-surface-variant]">Generated</span>
+            <span className="font-mono text-[--color-on-surface]">{new Date(fileInfo.created_at).toLocaleString()}</span>
           </div>
           <button
-            onClick={() => downloadWithAuth(getFileDownloadUrl(eodDate), fileInfo.file_name)}
-            disabled={fileInfo.status !== "SUCCESS"}
-            style={{
-              ...styles.downloadBtn,
-              opacity: fileInfo.status === "SUCCESS" ? 1 : 0.4,
-              cursor: fileInfo.status === "SUCCESS" ? "pointer" : "not-allowed",
-              border: "none",
-            }}
+            onClick={() => downloadWithAuth(getAllPdfsZipUrl(eodDate), `clearing_pdfs_${eodDate}.zip`)}
+            disabled={!canDownload}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold text-white mt-2 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+            style={{ background: canDownload ? "linear-gradient(135deg, #a60b00, #d31201)" : undefined }}
           >
-            Download NSI (Technical)
+            <span className="material-symbols-outlined text-base">download</span>
+            Download All PDFs
           </button>
-          <p style={{ fontSize: 11, color: "#6b7280", marginTop: 8 }}>
-            Per-bank PDF statements available in the Statements section below.
-          </p>
+          <p className="text-[--color-outline] text-[10px] text-center">ZIP containing clearing summary + per-bank statements</p>
         </div>
       )}
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    background: "#fff",
-    borderRadius: 8,
-    padding: "20px",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-  },
-  title: { margin: "0 0 12px", fontSize: 16, fontWeight: 600 },
-  empty: { color: "#9ca3af", fontSize: 14 },
-  detail: {
-    display: "flex",
-    gap: 8,
-    marginBottom: 6,
-    fontSize: 13,
-  },
-  label: { color: "#6b7280", minWidth: 80 },
-  value: { color: "#111827", fontFamily: "monospace" },
-  downloadBtn: {
-    display: "inline-block",
-    marginTop: 12,
-    padding: "8px 20px",
-    background: "#059669",
-    color: "#fff",
-    borderRadius: 6,
-    textDecoration: "none",
-    fontSize: 13,
-    fontWeight: 600,
-  },
-};

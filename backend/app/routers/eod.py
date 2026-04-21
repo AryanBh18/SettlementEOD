@@ -319,6 +319,185 @@ async def get_bank_statements(
     )
 
 
+@router.get("/statements/{eod_date}/summary-pdf")
+async def download_clearing_summary_pdf(
+    eod_date: date,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Download a PDF clearing summary report showing all banks' net positions and bilateral netting."""
+    from fastapi.responses import StreamingResponse
+    import io
+    from app.services.file_generator import FileGenerator
+
+    clearing_repo = ClearingRepo(db)
+    bilateral_repo = BilateralRepo(db)
+    settlement_repo = SettlementRepo(db)
+
+    clearing_results = await clearing_repo.get_by_date(eod_date)
+    if not clearing_results:
+        raise HTTPException(status_code=404, detail=f"No clearing data found for {eod_date}")
+
+    bilateral_results = await bilateral_repo.get_by_date(eod_date)
+    file_record = await settlement_repo.get_by_date(eod_date)
+
+    from decimal import Decimal
+    total_debit = file_record.total_debit if file_record else Decimal("0.00")
+    total_credit = file_record.total_credit if file_record else Decimal("0.00")
+
+    bank_positions = [
+        {
+            "bank_code": cr.bank.bank_code,
+            "bank_name": cr.bank.name,
+            "total_incoming": cr.total_incoming,
+            "total_outgoing": cr.total_outgoing,
+            "net_position": cr.net_position,
+        }
+        for cr in clearing_results
+    ]
+    bilateral_data = [
+        {
+            "bank_a_code": r.bank_a.bank_code,
+            "bank_a_name": r.bank_a.name,
+            "bank_b_code": r.bank_b.bank_code,
+            "bank_b_name": r.bank_b.name,
+            "bank_a_owes_b": r.bank_a_owes_b,
+            "bank_b_owes_a": r.bank_b_owes_a,
+            "net_amount": r.net_amount,
+            "net_direction": r.net_direction,
+        }
+        for r in bilateral_results
+    ]
+
+    pdf_bytes = FileGenerator.generate_clearing_summary_pdf(
+        eod_date=eod_date,
+        bank_positions=bank_positions,
+        bilateral_data=bilateral_data,
+        total_debit=total_debit,
+        total_credit=total_credit,
+    )
+
+    filename = f"clearing_summary_{eod_date}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/statements/{eod_date}/all-pdfs")
+async def download_all_pdfs_zip(
+    eod_date: date,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Download a ZIP containing the clearing summary PDF and all per-bank settlement PDFs."""
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse
+    from decimal import Decimal
+    from app.services.bilateral_engine import BilateralEngine, BilateralResult
+    from app.services.file_generator import FileGenerator
+
+    clearing_repo = ClearingRepo(db)
+    bilateral_repo = BilateralRepo(db)
+    settlement_repo = SettlementRepo(db)
+
+    clearing_results = await clearing_repo.get_by_date(eod_date)
+    if not clearing_results:
+        raise HTTPException(status_code=404, detail=f"No EOD data found for {eod_date}. Run EOD first.")
+
+    bilateral_db_results = await bilateral_repo.get_by_date(eod_date)
+    file_record = await settlement_repo.get_by_date(eod_date)
+
+    total_debit = file_record.total_debit if file_record else Decimal("0.00")
+    total_credit = file_record.total_credit if file_record else Decimal("0.00")
+
+    # Build summary PDF data
+    bank_positions = [
+        {
+            "bank_code": cr.bank.bank_code,
+            "bank_name": cr.bank.name,
+            "total_incoming": cr.total_incoming,
+            "total_outgoing": cr.total_outgoing,
+            "net_position": cr.net_position,
+        }
+        for cr in clearing_results
+    ]
+    bilateral_data = [
+        {
+            "bank_a_code": r.bank_a.bank_code,
+            "bank_a_name": r.bank_a.name,
+            "bank_b_code": r.bank_b.bank_code,
+            "bank_b_name": r.bank_b.name,
+            "bank_a_owes_b": r.bank_a_owes_b,
+            "bank_b_owes_a": r.bank_b_owes_a,
+            "net_amount": r.net_amount,
+            "net_direction": r.net_direction,
+        }
+        for r in bilateral_db_results
+    ]
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # Clearing summary PDF
+        summary_bytes = FileGenerator.generate_clearing_summary_pdf(
+            eod_date=eod_date,
+            bank_positions=bank_positions,
+            bilateral_data=bilateral_data,
+            total_debit=total_debit,
+            total_credit=total_credit,
+        )
+        zf.writestr(f"clearing_summary_{eod_date}.pdf", summary_bytes)
+
+        # Per-bank statement PDFs (only if bilateral data exists)
+        if bilateral_db_results:
+            bilateral_results = [
+                BilateralResult(
+                    bank_a_id=r.bank_a_id,
+                    bank_a_code=r.bank_a.bank_code,
+                    bank_a_name=r.bank_a.name,
+                    bank_b_id=r.bank_b_id,
+                    bank_b_code=r.bank_b.bank_code,
+                    bank_b_name=r.bank_b.name,
+                    bank_a_owes_b=r.bank_a_owes_b,
+                    bank_b_owes_a=r.bank_b_owes_a,
+                )
+                for r in bilateral_db_results
+            ]
+            statements = BilateralEngine.generate_all_bank_statements(bilateral_results)
+            for statement in statements:
+                breakdown_dicts = [
+                    {
+                        "bank_code": b.bank_code,
+                        "bank_name": b.bank_name,
+                        "gross_payable": b.gross_payable,
+                        "gross_receivable": b.gross_receivable,
+                        "net_amount": b.net_amount,
+                        "net_direction": b.net_direction,
+                    }
+                    for b in statement.breakdown
+                ]
+                pdf_bytes = FileGenerator.generate_bank_statement_pdf(
+                    eod_date=eod_date,
+                    bank_code=statement.bank_code,
+                    bank_name=statement.bank_name,
+                    total_debit=statement.total_debit,
+                    total_credit=statement.total_credit,
+                    net_position=statement.net_position,
+                    breakdown=breakdown_dicts,
+                )
+                zf.writestr(f"settlement_statement_{statement.bank_code}_{eod_date}.pdf", pdf_bytes)
+
+    zip_buffer.seek(0)
+    filename = f"clearing_pdfs_{eod_date}.zip"
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/statements/{eod_date}/{bank_code}", response_model=BankStatementResponse)
 async def get_bank_statement(
     eod_date: date,

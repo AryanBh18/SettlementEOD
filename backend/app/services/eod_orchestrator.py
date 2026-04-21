@@ -186,6 +186,7 @@ class EODOrchestrator:
                 positions, instructions, file_content,
                 total_debit, total_credit, transacting_bank_ids,
                 references=references,
+                transactions=transactions,
             )
 
             for check in checks:

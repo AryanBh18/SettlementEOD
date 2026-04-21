@@ -9,6 +9,7 @@ from app.models.audit_log import AuditLog
 from app.models.settings import MappingRule, NotificationSetting
 from app.models.cutoff_log import CutoffLog
 from app.models.bilateral_settlement import BilateralSettlement
+from app.models.cutoff_schedule import CutoffSchedule
 
 __all__ = [
     "Bank",
@@ -23,4 +24,5 @@ __all__ = [
     "NotificationSetting",
     "CutoffLog",
     "BilateralSettlement",
+    "CutoffSchedule",
 ]

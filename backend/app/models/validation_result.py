@@ -4,6 +4,7 @@ from sqlalchemy import String, Date, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.timezone import now_sr
 
 
 class ValidationResult(Base):
@@ -14,4 +15,4 @@ class ValidationResult(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     eod_date: Mapped[date] = mapped_column(Date, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_sr)

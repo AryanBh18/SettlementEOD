@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { runEOD, type EODRunResponse } from "../api/client";
+import { runEOD } from "../api/client";
 
 interface Props {
   selectedDate: string;
   onRunComplete: () => void;
   currentStatus: string;
+  compact?: boolean;
 }
 
 export default function EODRunPanel({
   selectedDate,
   onRunComplete,
   currentStatus,
+  compact = false,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,95 +31,72 @@ export default function EODRunPanel({
     }
   };
 
-  const statusColor = () => {
-    switch (currentStatus) {
-      case "SUCCESS":
-        return "#059669";
-      case "FAILED":
-        return "#dc2626";
-      case "NOT_RUN":
-        return "#9ca3af";
-      default:
-        return "#6b7280";
-    }
-  };
+  if (compact) {
+    return (
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-[--color-on-surface-variant] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={forceRerun}
+            onChange={(e) => setForceRerun(e.target.checked)}
+            className="rounded"
+          />
+          Force re-run
+        </label>
+        <button
+          onClick={handleRun}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
+          style={{ background: "linear-gradient(135deg, #a60b00, #d31201)" }}
+        >
+          <span className="material-symbols-outlined text-base">play_arrow</span>
+          {loading ? "Processing..." : "Run EOD"}
+        </button>
+        {error && <span className="text-xs text-[--color-error]">{error}</span>}
+      </div>
+    );
+  }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.row}>
+    <div className="bg-white rounded-xl p-6 shadow-sm border border-[--color-outline-variant]">
+      <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
-          <h2 style={styles.title}>EOD Settlement Run</h2>
-          <p style={styles.subtitle}>
-            Date: <strong>{selectedDate}</strong> &nbsp;|&nbsp; Status:{" "}
-            <span style={{ color: statusColor(), fontWeight: 700 }}>
+          <h2 className="font-display font-bold text-[--color-on-surface] text-xl">EOD Clearing &amp; Settlement Run</h2>
+          <p className="text-[--color-outline] text-sm mt-1">
+            Date: <strong>{selectedDate}</strong> &nbsp;·&nbsp; Status:{" "}
+            <span className={`font-bold ${currentStatus === "SUCCESS" ? "text-[--color-success]" : currentStatus === "FAILED" ? "text-[--color-error]" : "text-[--color-outline]"}`}>
               {loading ? "RUNNING..." : currentStatus}
             </span>
           </p>
         </div>
-        <div style={styles.actions}>
-          <label style={styles.checkboxLabel}>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-[--color-on-surface-variant] cursor-pointer select-none">
             <input
               type="checkbox"
               checked={forceRerun}
               onChange={(e) => setForceRerun(e.target.checked)}
+              className="rounded"
             />
             Force Re-run
           </label>
           <button
             onClick={handleRun}
             disabled={loading}
-            style={{
-              ...styles.button,
-              opacity: loading ? 0.6 : 1,
-              cursor: loading ? "not-allowed" : "pointer",
-            }}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ background: "linear-gradient(135deg, #a60b00, #d31201)" }}
           >
+            <span className="material-symbols-outlined text-base">play_arrow</span>
             {loading ? "Processing..." : "Run EOD"}
           </button>
         </div>
       </div>
-      {error && <div style={styles.error}>{error}</div>}
+      {error && (
+        <div className="mt-3 flex items-center gap-2 bg-[--color-error-light] text-[--color-error] text-sm px-4 py-2.5 rounded-lg">
+          <span className="material-symbols-outlined text-base">error</span>
+          {error}
+        </div>
+      )}
     </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    background: "#fff",
-    borderRadius: 8,
-    padding: "20px 24px",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-  },
-  row: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 16,
-  },
-  title: { margin: 0, fontSize: 20, fontWeight: 700 },
-  subtitle: { margin: "4px 0 0", fontSize: 14, color: "#6b7280" },
-  actions: {
-    display: "flex",
-    alignItems: "center",
-    gap: 16,
-  },
-  checkboxLabel: { fontSize: 13, color: "#374151", cursor: "pointer" },
-  button: {
-    background: "#2563eb",
-    color: "#fff",
-    border: "none",
-    borderRadius: 6,
-    padding: "10px 24px",
-    fontSize: 14,
-    fontWeight: 600,
-  },
-  error: {
-    marginTop: 12,
-    padding: "8px 12px",
-    background: "#fef2f2",
-    color: "#dc2626",
-    borderRadius: 6,
-    fontSize: 13,
-  },
-};

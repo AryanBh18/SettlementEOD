@@ -1,6 +1,8 @@
 from datetime import datetime
 
 from sqlalchemy import String, DateTime, Boolean, Text
+
+from app.utils.timezone import now_sr
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,7 +19,7 @@ class MappingRule(Base):
     transform_type: Mapped[str] = mapped_column(String(50), nullable=False, default="DIRECT")
     transform_config: Mapped[dict | None] = mapped_column(JSONB, default={})
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_sr)
 
 
 class NotificationSetting(Base):
@@ -28,4 +30,4 @@ class NotificationSetting(Base):
     notify_on_success: Mapped[bool] = mapped_column(Boolean, default=False)
     notify_on_failure: Mapped[bool] = mapped_column(Boolean, default=True)
     smtp_configured: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_sr)

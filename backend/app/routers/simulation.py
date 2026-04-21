@@ -24,6 +24,10 @@ class SimulationResponse(BaseModel):
     total_requested: int
 
 
+class ClearTransactionsResponse(BaseModel):
+    deleted: int
+
+
 @router.post("/generate", response_model=SimulationResponse)
 async def generate_transactions(
     request: SimulationRequest,
@@ -40,3 +44,18 @@ async def generate_transactions(
     except Exception as exc:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Simulation failed: {str(exc)}")
+
+
+@router.delete("/clear-all", response_model=ClearTransactionsResponse)
+async def clear_all_transactions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("ADMIN")),
+):
+    simulator = TransactionSimulator(db)
+    try:
+        result = await simulator.clear_all_transactions()
+        await db.commit()
+        return result
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Clear failed: {str(exc)}")

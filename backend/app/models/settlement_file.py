@@ -5,6 +5,7 @@ from sqlalchemy import String, Date, DateTime, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.timezone import now_sr
 
 
 class SettlementFile(Base):
@@ -19,4 +20,4 @@ class SettlementFile(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="SUCCESS")
     file_type: Mapped[str] = mapped_column(String(20), nullable=False, default="COMBINED")
     bank_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_sr)
