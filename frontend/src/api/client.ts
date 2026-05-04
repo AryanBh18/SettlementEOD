@@ -44,6 +44,9 @@ export interface ValidationCheck {
   check_name: string;
   status: string;
   message: string | null;
+  triggered_by: number | null;
+  username: string | null;
+  created_at: string | null;
 }
 
 export interface ProcessLog {
@@ -52,6 +55,8 @@ export interface ProcessLog {
   status: string;
   message: string | null;
   eod_date: string;
+  triggered_by: number | null;
+  username: string | null;
   created_at: string;
 }
 
@@ -96,6 +101,7 @@ export interface TransactionItem {
 export interface AuditLogItem {
   id: number;
   user_id: number | null;
+  username: string | null;
   action: string;
   resource: string | null;
   resource_id: string | null;

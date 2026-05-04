@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse as _StreamingResponse
+from fastapi.responses import StreamingResponse as _StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -73,7 +73,7 @@ async def get_eod_status(
     # Determine overall status
     if not clearing_results and not process_logs:
         status = "NOT_RUN"
-    elif any(v.status == "FAIL" for v in validation_results):
+    elif any(v["status"] == "FAIL" for v in validation_results):
         status = "FAILED"
     else:
         status = "SUCCESS"
@@ -103,20 +103,25 @@ async def get_eod_status(
         ],
         validation_results=[
             ValidationCheckResponse(
-                check_name=v.check_name,
-                status=v.status,
-                message=v.message,
+                check_name=v["check_name"],
+                status=v["status"],
+                message=v["message"],
+                triggered_by=v["triggered_by"],
+                username=v["username"],
+                created_at=v["created_at"],
             )
             for v in validation_results
         ],
         process_logs=[
             ProcessLogResponse(
-                id=log.id,
-                process_name=log.process_name,
-                status=log.status,
-                message=log.message,
-                eod_date=log.eod_date,
-                created_at=log.created_at,
+                id=log["id"],
+                process_name=log["process_name"],
+                status=log["status"],
+                message=log["message"],
+                eod_date=log["eod_date"],
+                triggered_by=log["triggered_by"],
+                username=log["username"],
+                created_at=log["created_at"],
             )
             for log in process_logs
         ],
@@ -129,50 +134,6 @@ async def get_eod_status(
             created_at=file_record.created_at,
         ) if file_record else None,
     )
-
-
-@router.get("/files/{eod_date}")
-async def download_eod_file(
-    eod_date: date,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    settlement_repo = SettlementRepo(db)
-    file_record = await settlement_repo.get_by_date(eod_date)
-
-    if not file_record:
-        raise HTTPException(status_code=404, detail=f"No settlement file found for {eod_date}")
-
-    import os
-    if not os.path.exists(file_record.file_path):
-        raise HTTPException(status_code=404, detail="Settlement file not found on disk")
-
-    return FileResponse(
-        path=file_record.file_path,
-        filename=file_record.file_name,
-        media_type="text/plain",
-    )
-
-
-@router.get("/files/{eod_date}/all")
-async def list_eod_files(
-    eod_date: date,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    settlement_repo = SettlementRepo(db)
-    files = await settlement_repo.get_all_by_date(eod_date)
-    return [
-        FileInfoResponse(
-            file_name=f.file_name,
-            total_debit=f.total_debit,
-            total_credit=f.total_credit,
-            eod_date=f.eod_date,
-            status=f.status,
-            created_at=f.created_at,
-        )
-        for f in files
-    ]
 
 
 @router.get("/report/{eod_date}")
@@ -212,7 +173,7 @@ async def export_report(
 
     from app.services.validation_engine import ValidationCheck
     checks = [
-        ValidationCheck(v.check_name, v.status, v.message) for v in validation_results
+        ValidationCheck(v["check_name"], v["status"], v["message"]) for v in validation_results
     ]
 
     from app.services.report_generator import ReportGenerator

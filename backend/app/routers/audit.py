@@ -17,6 +17,7 @@ router = APIRouter(prefix="/audit", tags=["Audit"])
 class AuditLogResponse(BaseModel):
     id: int
     user_id: int | None
+    username: str | None = None
     action: str
     resource: str | None
     resource_id: str | None

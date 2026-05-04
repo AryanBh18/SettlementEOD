@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit_log import AuditLog
+from app.models.user import User
 
 
 class AuditRepo:
@@ -37,8 +38,13 @@ class AuditRepo:
         user_id: int | None = None,
         action: str | None = None,
         limit: int = 100,
-    ) -> list[AuditLog]:
-        stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+    ) -> list[dict]:
+        stmt = (
+            select(AuditLog, User.username)
+            .outerjoin(User, AuditLog.user_id == User.id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(limit)
+        )
         if start_date:
             stmt = stmt.where(AuditLog.created_at >= datetime.combine(start_date, datetime.min.time()))
         if end_date:
@@ -48,4 +54,18 @@ class AuditRepo:
         if action:
             stmt = stmt.where(AuditLog.action == action)
         result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        rows = result.all()
+        logs = []
+        for audit_log, username in rows:
+            logs.append({
+                "id": audit_log.id,
+                "user_id": audit_log.user_id,
+                "username": username,
+                "action": audit_log.action,
+                "resource": audit_log.resource,
+                "resource_id": audit_log.resource_id,
+                "details": audit_log.details,
+                "ip_address": audit_log.ip_address,
+                "created_at": audit_log.created_at,
+            })
+        return logs

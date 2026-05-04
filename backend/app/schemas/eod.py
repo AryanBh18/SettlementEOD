@@ -29,6 +29,9 @@ class ValidationCheckResponse(BaseModel):
     check_name: str
     status: str  # PASS or FAIL
     message: str | None = None
+    triggered_by: int | None = None
+    username: str | None = None
+    created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -39,6 +42,8 @@ class ProcessLogResponse(BaseModel):
     status: str
     message: str | None = None
     eod_date: date
+    triggered_by: int | None = None
+    username: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

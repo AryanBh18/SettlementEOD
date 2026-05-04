@@ -31,9 +31,19 @@ export default function ProcessLogs({ logs }: Props) {
               <div key={log.id} className="flex items-start gap-3 px-6 py-3 hover:bg-[--color-surface-low] transition-colors">
                 <span className={`material-symbols-outlined text-base mt-0.5 shrink-0 filled ${cfg.cls}`}>{cfg.icon}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-[--color-on-surface] text-xs">{log.process_name}</span>
-                    <span className="text-[--color-outline] text-[10px] font-mono ml-auto shrink-0">{new Date(log.created_at).toLocaleTimeString()}</span>
+                    {log.username && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[--color-surface-container] text-[--color-on-surface-variant] font-mono">
+                        by {log.username}
+                      </span>
+                    )}
+                    <span className="text-[--color-outline] text-[10px] font-mono ml-auto shrink-0">
+                      {new Date(log.created_at).toLocaleString(undefined, {
+                        year: "numeric", month: "short", day: "2-digit",
+                        hour: "2-digit", minute: "2-digit", second: "2-digit",
+                      })}
+                    </span>
                   </div>
                   {log.message && <p className="text-[--color-on-surface-variant] text-xs mt-0.5 font-mono">{log.message}</p>}
                 </div>

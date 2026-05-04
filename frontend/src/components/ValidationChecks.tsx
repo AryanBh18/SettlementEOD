@@ -37,11 +37,24 @@ export default function ValidationChecks({ checks }: Props) {
               {check.status === "PASS" ? "check_circle" : "cancel"}
             </span>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-xs font-semibold text-[--color-on-surface]">{check.check_name}</span>
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${check.status === "PASS" ? "bg-[--color-success-light] text-[--color-success]" : "bg-[--color-error-light] text-[--color-error]"}`}>
                   {check.status}
                 </span>
+                {check.username && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[--color-surface-container] text-[--color-on-surface-variant] font-mono">
+                    by {check.username}
+                  </span>
+                )}
+                {check.created_at && (
+                  <span className="text-[--color-outline] text-[10px] font-mono ml-auto shrink-0">
+                    {new Date(check.created_at).toLocaleString(undefined, {
+                      year: "numeric", month: "short", day: "2-digit",
+                      hour: "2-digit", minute: "2-digit", second: "2-digit",
+                    })}
+                  </span>
+                )}
               </div>
               {check.message && <p className="text-[--color-outline] text-xs mt-0.5">{check.message}</p>}
             </div>

@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from app.models.transaction import Transaction
 
 from app.services.clearing_engine import BankPosition
-from app.services.file_generator import FileGenerator
 from app.services.settlement_engine import SettlementInstruction
 
 VALID_TRANSACTION_TYPES = {"ATM", "POS"}
@@ -27,7 +26,6 @@ class ValidationEngine:
     def run_all_checks(
         positions: dict[int, BankPosition],
         instructions: list[SettlementInstruction],
-        file_content: str,
         total_debit: Decimal,
         total_credit: Decimal,
         transacting_bank_ids: set[int],
@@ -39,11 +37,9 @@ class ValidationEngine:
         if transactions is not None:
             checks.append(ValidationEngine._check_transaction_quality(transactions))
         checks.append(ValidationEngine._check_balance(total_debit, total_credit))
-        checks.append(ValidationEngine._check_file_structure(file_content))
         checks.append(ValidationEngine._check_bank_completeness(positions, transacting_bank_ids))
         checks.append(ValidationEngine._check_null_values(instructions))
         checks.append(ValidationEngine._check_decimal_precision(instructions))
-        checks.append(ValidationEngine._check_trailer_hash(file_content))
         if references is not None:
             checks.append(ValidationEngine._check_duplicate_references(references))
 
@@ -105,34 +101,6 @@ class ValidationEngine:
         )
 
     @staticmethod
-    def _check_file_structure(file_content: str) -> ValidationCheck:
-        parsed = FileGenerator.parse_nsi_file(file_content)
-
-        if parsed["header"] is None:
-            return ValidationCheck("FILE_STRUCTURE", "FAIL", "Missing HDR line")
-        if parsed["trailer"] is None:
-            return ValidationCheck("FILE_STRUCTURE", "FAIL", "Missing TRL line")
-
-        expected_count = parsed["header"]["record_count"]
-        actual_count = len(parsed["details"])
-        if expected_count != actual_count:
-            return ValidationCheck(
-                "FILE_STRUCTURE",
-                "FAIL",
-                f"Header record_count={expected_count} but found {actual_count} detail lines",
-            )
-
-        trailer_count = parsed["trailer"]["record_count"]
-        if trailer_count != actual_count:
-            return ValidationCheck(
-                "FILE_STRUCTURE",
-                "FAIL",
-                f"Trailer record_count={trailer_count} but found {actual_count} detail lines",
-            )
-
-        return ValidationCheck("FILE_STRUCTURE", "PASS", "Header, details, and trailer are consistent")
-
-    @staticmethod
     def _check_bank_completeness(
         positions: dict[int, BankPosition],
         transacting_bank_ids: set[int],
@@ -176,27 +144,6 @@ class ValidationEngine:
                     f"Amount {instr.amount} for bank {instr.bank_code} exceeds 2 decimal places",
                 )
         return ValidationCheck("DECIMAL_PRECISION", "PASS", "All amounts have correct decimal precision (2 places)")
-
-    @staticmethod
-    def _check_trailer_hash(file_content: str) -> ValidationCheck:
-        parsed = FileGenerator.parse_nsi_file(file_content)
-        if parsed["trailer"] is None:
-            return ValidationCheck("TRAILER_HASH", "FAIL", "No trailer found to verify hash")
-
-        recalculated = sum((d["amount"] for d in parsed["details"]), Decimal("0.00"))
-        trailer_hash = parsed["trailer"]["hash_total"]
-
-        if recalculated == trailer_hash:
-            return ValidationCheck(
-                "TRAILER_HASH",
-                "PASS",
-                f"Hash total ({trailer_hash:.2f}) matches recalculated value",
-            )
-        return ValidationCheck(
-            "TRAILER_HASH",
-            "FAIL",
-            f"Trailer hash={trailer_hash:.2f}, recalculated={recalculated:.2f}",
-        )
 
     @staticmethod
     def _check_duplicate_references(references: list[str]) -> ValidationCheck:

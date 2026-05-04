@@ -41,6 +41,7 @@ class CutoffService:
             "CUTOFF_TRIGGERED", "SUCCESS",
             f"Cutoff triggered for {settlement_date} at {cutoff.cutoff_timestamp.isoformat()}",
             settlement_date,
+            triggered_by=user_id,
         )
 
         # Mock-notify all banks

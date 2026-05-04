@@ -21,13 +21,6 @@ if (-not (Test-Path "$backendPath\.env")) {
     }
 }
 
-# Create generated_files directory if missing
-$genDir = Join-Path $backendPath "generated_files"
-if (-not (Test-Path $genDir)) {
-    New-Item -ItemType Directory -Path $genDir | Out-Null
-    Write-Host "[SETUP] Created backend\generated_files\" -ForegroundColor Green
-}
-
 Write-Host "[1/2] Starting Backend  --> http://localhost:8000" -ForegroundColor Green
 Write-Host "      API Docs          --> http://localhost:8000/docs" -ForegroundColor DarkGray
 $uvicorn = Join-Path $root ".venv\Scripts\uvicorn.exe"

@@ -29,7 +29,7 @@ export default function AuditLog() {
               {logs?.map((log) => (
                 <tr key={log.id} className="hover:bg-[--color-surface-low] transition-colors">
                   <td className="px-6 py-3 font-mono text-[--color-on-surface-variant] whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
-                  <td className="px-6 py-3 text-[--color-on-surface]">{log.user_id ?? "-"}</td>
+                  <td className="px-6 py-3 text-[--color-on-surface]">{log.username ?? log.user_id ?? "-"}</td>
                   <td className="px-6 py-3 font-semibold text-[--color-on-surface]">{log.action}</td>
                   <td className="px-6 py-3 text-[--color-on-surface-variant]">{log.resource ?? "-"}</td>
                   <td className="px-6 py-3 font-mono text-[--color-outline] max-w-xs truncate">{log.details ? JSON.stringify(log.details) : "-"}</td>

@@ -21,7 +21,6 @@ from app.schemas.eod import (
 )
 from app.services.bilateral_engine import BilateralEngine
 from app.services.clearing_engine import ClearingEngine
-from app.services.file_generator import FileGenerator
 from app.services.notification_service import NotificationService
 from app.services.settlement_engine import SettlementEngine
 from app.services.transaction_service import TransactionService
@@ -55,6 +54,7 @@ class EODOrchestrator:
                         "EOD_RETRY", "INFO",
                         f"Retry attempt {attempt}/{max_retries} for {eod_date}",
                         eod_date,
+                        triggered_by=user_id,
                     )
                 return await self._execute_run(eod_date, force_rerun, user_id)
             except Exception as exc:
@@ -76,6 +76,7 @@ class EODOrchestrator:
                 "EOD_SKIPPED", "INFO",
                 f"EOD already processed for {eod_date}. Use force_rerun=true to reprocess.",
                 eod_date,
+                triggered_by=user_id,
             )
             await self.db.commit()
             return await self._build_existing_response(eod_date)
@@ -85,7 +86,7 @@ class EODOrchestrator:
             await self._cleanup_previous_run(eod_date)
 
         try:
-            await self.log_repo.log("EOD_START", "INFO", f"Starting EOD processing for {eod_date}", eod_date)
+            await self.log_repo.log("EOD_START", "INFO", f"Starting EOD processing for {eod_date}", eod_date, triggered_by=user_id)
 
             # Audit log
             if user_id:
@@ -102,6 +103,7 @@ class EODOrchestrator:
                 "FETCH_TRANSACTIONS", "SUCCESS",
                 f"Fetched {txn_count} successful transactions for {eod_date}",
                 eod_date,
+                triggered_by=user_id,
             )
 
             # 3. Calculate clearing positions
@@ -111,6 +113,7 @@ class EODOrchestrator:
                 "CLEARING", "SUCCESS",
                 f"Calculated clearing positions for {len(positions)} banks",
                 eod_date,
+                triggered_by=user_id,
             )
 
             # 4. Generate settlement instructions
@@ -121,21 +124,16 @@ class EODOrchestrator:
                 f"Generated {len(instructions)} settlement instructions. "
                 f"Total debit={total_debit:.2f}, credit={total_credit:.2f}",
                 eod_date,
+                triggered_by=user_id,
             )
 
-            # 5. Generate NSI file
-            file_name, file_path = FileGenerator.generate_nsi_file(
-                eod_date, instructions, total_debit, total_credit
-            )
-            file_content = FileGenerator.read_nsi_file(file_path)
-
-            # Delete any stale settlement file record before inserting (handles partial previous runs)
+            # 5. Record EOD completion
             await self.settlement_repo.delete_by_date(eod_date)
             await self.db.flush()
 
             file_record = SettlementFile(
-                file_name=file_name,
-                file_path=file_path,
+                file_name="EOD_COMPLETE",
+                file_path="",
                 total_debit=total_debit,
                 total_credit=total_credit,
                 eod_date=eod_date,
@@ -144,25 +142,11 @@ class EODOrchestrator:
             )
             await self.settlement_repo.save_file_record(file_record)
 
-            # 5b. Generate per-bank NSI files
-            per_bank_files = FileGenerator.generate_per_bank_files(eod_date, positions, instructions)
-            for bank_code, (pf_name, pf_path, pf_debit, pf_credit) in per_bank_files.items():
-                bank_file = SettlementFile(
-                    file_name=pf_name,
-                    file_path=pf_path,
-                    total_debit=pf_debit,
-                    total_credit=pf_credit,
-                    eod_date=eod_date,
-                    status="SUCCESS",
-                    file_type="PER_BANK",
-                    bank_code=bank_code,
-                )
-                await self.settlement_repo.save_file_record(bank_file)
-
             await self.log_repo.log(
                 "FILE_GENERATION", "SUCCESS",
-                f"Generated NSI file: {file_name} + {len(per_bank_files)} per-bank files",
+                f"EOD completion record saved for {eod_date}",
                 eod_date,
+                triggered_by=user_id,
             )
 
             # 5c. Calculate bilateral settlements
@@ -172,6 +156,7 @@ class EODOrchestrator:
                 "BILATERAL_SETTLEMENT", "SUCCESS",
                 f"Calculated bilateral settlements for {len(bilateral_results)} bank pairs",
                 eod_date,
+                triggered_by=user_id,
             )
 
             # 6. Run validations (including duplicate check)
@@ -183,7 +168,7 @@ class EODOrchestrator:
             references = [txn.reference for txn in transactions if txn.reference]
 
             checks = ValidationEngine.run_all_checks(
-                positions, instructions, file_content,
+                positions, instructions,
                 total_debit, total_credit, transacting_bank_ids,
                 references=references,
                 transactions=transactions,
@@ -191,7 +176,8 @@ class EODOrchestrator:
 
             for check in checks:
                 await self.log_repo.save_validation_result(
-                    check.check_name, check.status, check.message, eod_date
+                    check.check_name, check.status, check.message, eod_date,
+                    triggered_by=user_id,
                 )
 
             all_passed = ValidationEngine.all_passed(checks)
@@ -205,18 +191,21 @@ class EODOrchestrator:
                     f"{len(failed)} validation check(s) failed: "
                     + ", ".join(c.check_name for c in failed),
                     eod_date,
+                    triggered_by=user_id,
                 )
             else:
                 await self.log_repo.log(
                     "VALIDATION", "SUCCESS",
                     f"All {len(checks)} validation checks passed",
                     eod_date,
+                    triggered_by=user_id,
                 )
 
             await self.log_repo.log(
                 "EOD_COMPLETE", overall_status,
                 f"EOD processing completed with status: {overall_status}",
                 eod_date,
+                triggered_by=user_id,
             )
 
             await self.db.commit()
@@ -266,7 +255,8 @@ class EODOrchestrator:
 
         except Exception as exc:
             await self.log_repo.log(
-                "EOD_FAILED", "ERROR", f"EOD processing failed: {str(exc)}", eod_date
+                "EOD_FAILED", "ERROR", f"EOD processing failed: {str(exc)}", eod_date,
+                triggered_by=user_id,
             )
             await self.db.commit()
             raise
@@ -324,7 +314,7 @@ class EODOrchestrator:
             total_credit = file_record.total_credit
 
         overall_status = "SUCCESS"
-        if any(v.status == "FAIL" for v in validation_results):
+        if any(v["status"] == "FAIL" for v in validation_results):
             overall_status = "FAILED"
 
         return EODRunResponse(
@@ -346,9 +336,12 @@ class EODOrchestrator:
             ],
             validation_results=[
                 ValidationCheckResponse(
-                    check_name=v.check_name,
-                    status=v.status,
-                    message=v.message,
+                    check_name=v["check_name"],
+                    status=v["status"],
+                    message=v["message"],
+                    triggered_by=v["triggered_by"],
+                    username=v["username"],
+                    created_at=v["created_at"],
                 )
                 for v in validation_results
             ],

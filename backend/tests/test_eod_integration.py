@@ -1,8 +1,7 @@
 import pytest
 import pytest_asyncio
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
-from unittest.mock import patch
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import event
@@ -13,7 +12,7 @@ from app.services.eod_orchestrator import EODOrchestrator
 
 
 @pytest_asyncio.fixture
-async def db_session(tmp_path):
+async def db_session():
     """Create an in-memory SQLite database for testing."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
 
@@ -75,14 +74,10 @@ async def db_session(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_full_eod_run(db_session, tmp_path):
+async def test_full_eod_run(db_session):
     """Integration test: full EOD pipeline with known data."""
-    with patch("app.services.file_generator.settings") as mock_settings:
-        mock_settings.OUTPUT_DIR = str(tmp_path)
-        mock_settings.EOD_FILE_PREFIX = "NSI_SETTLEMENT"
-
-        orchestrator = EODOrchestrator(db_session)
-        result = await orchestrator.run(date(2026, 4, 10))
+    orchestrator = EODOrchestrator(db_session)
+    result = await orchestrator.run(date(2026, 4, 10))
 
     assert result.status == "SUCCESS"
     assert result.total_transactions == 4  # Only SUCCESS transactions
@@ -91,7 +86,7 @@ async def test_full_eod_run(db_session, tmp_path):
     assert len(result.validation_results) == 6  # All 6 checks
     assert all(v.status == "PASS" for v in result.validation_results)
     assert result.file_info is not None
-    assert result.file_info.file_name.endswith(".nsi")
+    assert result.file_info.file_name == "EOD_COMPLETE"
 
     # Verify net positions sum to zero
     total_net = sum(p.net_position for p in result.bank_positions)
@@ -99,15 +94,11 @@ async def test_full_eod_run(db_session, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_idempotency(db_session, tmp_path):
+async def test_idempotency(db_session):
     """Running EOD twice for same date without force_rerun returns existing results."""
-    with patch("app.services.file_generator.settings") as mock_settings:
-        mock_settings.OUTPUT_DIR = str(tmp_path)
-        mock_settings.EOD_FILE_PREFIX = "NSI_SETTLEMENT"
-
-        orchestrator = EODOrchestrator(db_session)
-        result1 = await orchestrator.run(date(2026, 4, 10))
-        result2 = await orchestrator.run(date(2026, 4, 10))
+    orchestrator = EODOrchestrator(db_session)
+    result1 = await orchestrator.run(date(2026, 4, 10))
+    result2 = await orchestrator.run(date(2026, 4, 10))
 
     assert result1.status == "SUCCESS"
     assert result2.status == "SUCCESS"
@@ -117,29 +108,21 @@ async def test_idempotency(db_session, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_force_rerun(db_session, tmp_path):
+async def test_force_rerun(db_session):
     """Force re-run replaces previous results."""
-    with patch("app.services.file_generator.settings") as mock_settings:
-        mock_settings.OUTPUT_DIR = str(tmp_path)
-        mock_settings.EOD_FILE_PREFIX = "NSI_SETTLEMENT"
-
-        orchestrator = EODOrchestrator(db_session)
-        result1 = await orchestrator.run(date(2026, 4, 10))
-        result2 = await orchestrator.run(date(2026, 4, 10), force_rerun=True)
+    orchestrator = EODOrchestrator(db_session)
+    result1 = await orchestrator.run(date(2026, 4, 10))
+    result2 = await orchestrator.run(date(2026, 4, 10), force_rerun=True)
 
     assert result2.status == "SUCCESS"
     assert result2.total_transactions == 4
 
 
 @pytest.mark.asyncio
-async def test_empty_date(db_session, tmp_path):
+async def test_empty_date(db_session):
     """EOD run for a date with no transactions."""
-    with patch("app.services.file_generator.settings") as mock_settings:
-        mock_settings.OUTPUT_DIR = str(tmp_path)
-        mock_settings.EOD_FILE_PREFIX = "NSI_SETTLEMENT"
-
-        orchestrator = EODOrchestrator(db_session)
-        result = await orchestrator.run(date(2026, 1, 1))
+    orchestrator = EODOrchestrator(db_session)
+    result = await orchestrator.run(date(2026, 1, 1))
 
     assert result.status == "SUCCESS"
     assert result.total_transactions == 0
