@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,7 @@ from app.models.user import User
 from app.repositories.user_repo import UserRepo
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -22,17 +25,20 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = await repo.get_by_username(request.username)
 
     if not user or not verify_password(request.password, user.password_hash):
+        logger.warning("Login failed: invalid credentials for username=%r", request.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
 
     if not user.is_active:
+        logger.warning("Login failed: account disabled for username=%r", request.username)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is disabled",
         )
 
+    logger.info("Login success for username=%r role=%r", user.username, user.role)
     token = create_access_token(data={"sub": user.username, "role": user.role})
     return TokenResponse(
         access_token=token,

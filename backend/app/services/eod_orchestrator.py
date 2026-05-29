@@ -294,11 +294,11 @@ class EODOrchestrator:
         await self.bilateral_repo.save_results(records)
 
     async def _cleanup_previous_run(self, eod_date: date) -> None:
+        # Only delete computed results that have unique constraints on eod_date.
+        # ProcessLog and ValidationResult are never deleted — they form the immutable audit trail.
         await self.clearing_repo.delete_by_date(eod_date)
         await self.bilateral_repo.delete_by_date(eod_date)
         await self.settlement_repo.delete_by_date(eod_date)
-        await self.log_repo.delete_logs_by_date(eod_date)
-        await self.log_repo.delete_validations_by_date(eod_date)
         await self.db.flush()
 
     async def _build_existing_response(self, eod_date: date) -> EODRunResponse:

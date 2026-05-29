@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -23,8 +23,8 @@ class TransactionRepo:
 
     async def count_by_date(self, eod_date: date) -> int:
         stmt = (
-            select(Transaction)
+            select(func.count(Transaction.id))
             .where(Transaction.transaction_date == eod_date, Transaction.status == "SUCCESS")
         )
         result = await self.db.execute(stmt)
-        return len(result.scalars().unique().all())
+        return result.scalar_one()

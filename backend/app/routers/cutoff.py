@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime
 import re
 
@@ -14,6 +15,7 @@ from app.services.cutoff_service import CutoffService
 from app.utils.timezone import now_sr
 
 router = APIRouter(prefix="/cutoff", tags=["Cutoff"])
+logger = logging.getLogger(__name__)
 
 
 class CutoffRequest(BaseModel):
@@ -65,7 +67,8 @@ async def trigger_cutoff(
         raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Cutoff failed: {str(exc)}")
+        logger.error("Cutoff trigger failed for date %s", request.settlement_date, exc_info=exc)
+        raise HTTPException(status_code=500, detail="Cutoff processing failed. Check server logs.")
 
 
 @router.get("/schedule", response_model=CutoffScheduleResponse | None)
@@ -113,7 +116,8 @@ async def save_cutoff_schedule(
         return schedule
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to save schedule: {str(exc)}")
+        logger.error("Failed to save cutoff schedule", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Failed to save schedule. Check server logs.")
 
 
 @router.get("/status/{settlement_date}", response_model=CutoffResponse | None)

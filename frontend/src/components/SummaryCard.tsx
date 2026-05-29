@@ -5,17 +5,27 @@ interface Props {
   status: string;
 }
 
-function StatCard({ icon, label, value, valueClass, bgIcon }: { icon: string; label: string; value: string; valueClass?: string; bgIcon?: string }) {
+interface StatCardProps {
+  label: string;
+  value: string;
+  valueClass?: string;
+  accentColor: string;
+  icon: string;
+}
+
+function StatCard({ label, value, valueClass, accentColor, icon }: StatCardProps) {
   return (
-    <div className="relative overflow-hidden bg-white rounded-xl p-5 border border-[--color-outline-variant] shadow-sm">
-      {bgIcon && (
-        <span className="material-symbols-outlined absolute -right-2 -bottom-2 text-7xl text-[--color-surface-container] select-none filled">{bgIcon}</span>
-      )}
-      <div className="flex items-center gap-2 mb-3">
-        <span className="material-symbols-outlined text-[--color-outline] text-base">{icon}</span>
-        <span className="text-[--color-on-surface-variant] text-xs font-semibold uppercase tracking-wider">{label}</span>
+    <div className="relative overflow-hidden bg-white border border-outline-variant shadow-[0_40px_40px_rgba(25,28,29,0.04)]">
+      <div className="h-0.5 w-full" style={{ background: accentColor }} />
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">{label}</span>
+          <span className="material-symbols-outlined text-[18px] text-outline">{icon}</span>
+        </div>
+        <div className={`font-headline font-extrabold text-3xl tabular-nums leading-none ${valueClass ?? "text-on-surface"}`}>
+          {value}
+        </div>
       </div>
-      <div className={`font-display font-bold text-2xl tabular-nums ${valueClass ?? 'text-[--color-on-surface]'}`}>{value}</div>
     </div>
   );
 }
@@ -30,15 +40,32 @@ export default function SummaryCard({ totalTransactions, totalDebit, totalCredit
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard icon="receipt_long" label="Transactions" value={String(totalTransactions)} bgIcon="receipt_long" />
-      <StatCard icon="arrow_upward" label="Total Debit (DR)" value={fmt(totalDebit)} valueClass="text-[--color-primary]" bgIcon="arrow_upward" />
-      <StatCard icon="arrow_downward" label="Total Credit (CR)" value={fmt(totalCredit)} valueClass="text-[--color-tertiary]" bgIcon="arrow_downward" />
       <StatCard
-        icon={balanced ? "verified" : "warning"}
+        label="Transactions"
+        value={String(totalTransactions)}
+        accentColor="#74777b"
+        icon="receipt_long"
+      />
+      <StatCard
+        label="Total Debit (DR)"
+        value={fmt(totalDebit)}
+        valueClass="text-primary"
+        accentColor="#a60b00"
+        icon="arrow_upward"
+      />
+      <StatCard
+        label="Total Credit (CR)"
+        value={fmt(totalCredit)}
+        valueClass="text-tertiary"
+        accentColor="#0046c3"
+        icon="arrow_downward"
+      />
+      <StatCard
         label="Settlement Balance"
         value={balanced ? "BALANCED" : "UNBALANCED"}
-        valueClass={balanced ? "text-[--color-success]" : "text-[--color-error]"}
-        bgIcon={balanced ? "verified" : "warning"}
+        valueClass={balanced ? "text-success text-2xl" : "text-error text-2xl"}
+        accentColor={balanced ? "#1a7f4b" : "#a60b00"}
+        icon={balanced ? "verified" : "warning"}
       />
     </div>
   );

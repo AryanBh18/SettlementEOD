@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -184,6 +184,17 @@ export interface BankStatementsList {
   settlement_date: string;
   total_banks: number;
   statements: BankStatementItem[];
+}
+
+// --- Error helpers ---
+export interface ApiError {
+  response?: { status?: number; data?: { detail?: string; request_id?: string } };
+  message?: string;
+}
+
+export function getErrorMessage(err: unknown, fallback: string): string {
+  const e = err as ApiError;
+  return e?.response?.data?.detail ?? e?.message ?? fallback;
 }
 
 // --- Auth ---

@@ -10,6 +10,8 @@
   --color-surface: #f8f9fa;
   --color-surface-low: #f3f4f5;
   --color-surface-container: #edeeef;
+  --color-surface-container-low: #f3f4f5;
+  --color-surface-container-lowest: #fafbfc;
   --color-surface-high: #e7e8e9;
   --color-on-surface: #1a1c1e;
   --color-on-surface-variant: #44474a;
@@ -24,6 +26,7 @@
 
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-display: 'Manrope', system-ui, sans-serif;
+  --font-headline: 'Manrope', system-ui, sans-serif;
 }
 
 *, *::before, *::after {

@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,7 @@ from app.models.user import User
 from app.services.transaction_simulator import TransactionSimulator
 
 router = APIRouter(prefix="/simulation", tags=["Simulation"])
+logger = logging.getLogger(__name__)
 
 
 class SimulationRequest(BaseModel):
@@ -43,7 +45,8 @@ async def generate_transactions(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Simulation failed: {str(exc)}")
+        logger.error("Transaction simulation failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Simulation failed. Check server logs.")
 
 
 @router.delete("/clear-all", response_model=ClearTransactionsResponse)
@@ -58,4 +61,5 @@ async def clear_all_transactions(
         return result
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Clear failed: {str(exc)}")
+        logger.error("Clear transactions failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Clear operation failed. Check server logs.")

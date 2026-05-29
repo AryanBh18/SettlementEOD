@@ -1,8 +1,11 @@
+import io
+import logging
+import zipfile
 from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse as _StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -29,9 +32,16 @@ from app.schemas.eod import (
     ProcessLogResponse,
     ValidationCheckResponse,
 )
+from app.services.bilateral_engine import BilateralEngine, BilateralResult
+from app.services.clearing_engine import BankPosition
 from app.services.eod_orchestrator import EODOrchestrator
+from app.services.file_generator import FileGenerator
+from app.services.report_generator import ReportGenerator
+from app.services.settlement_engine import SettlementEngine
+from app.services.validation_engine import ValidationCheck
 
 router = APIRouter(prefix="/eod", tags=["EOD Settlement"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/run", response_model=EODRunResponse)
@@ -45,12 +55,16 @@ async def run_eod(
         result = await orchestrator.run(
             request.eod_date,
             force_rerun=request.force_rerun,
-            max_retries=getattr(request, "max_retries", 0),
+            max_retries=request.max_retries,
             user_id=current_user.id,
         )
         return result
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"EOD processing failed: {str(exc)}")
+        logger.error("EOD run failed for date %s by user %s", request.eod_date, current_user.id, exc_info=exc)
+        raise HTTPException(
+            status_code=500,
+            detail="EOD processing failed. Contact your administrator with the X-Request-ID response header.",
+        )
 
 
 @router.get("/status/{eod_date}", response_model=EODStatusResponse)
@@ -142,9 +156,6 @@ async def export_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from fastapi.responses import StreamingResponse
-    import io
-
     clearing_repo = ClearingRepo(db)
     log_repo = LogRepo(db)
     settlement_repo = SettlementRepo(db)
@@ -156,8 +167,6 @@ async def export_report(
     if not clearing_results:
         raise HTTPException(status_code=404, detail=f"No EOD data found for {eod_date}")
 
-    # Build positions dict
-    from app.services.clearing_engine import BankPosition
     positions = {
         cr.bank_id: BankPosition(
             bank_id=cr.bank_id, bank_code=cr.bank.bank_code,
@@ -167,16 +176,13 @@ async def export_report(
         for cr in clearing_results
     }
 
-    from app.services.settlement_engine import SettlementEngine
     instructions = SettlementEngine.generate_instructions(positions)
     total_debit, total_credit = SettlementEngine.get_totals(instructions)
 
-    from app.services.validation_engine import ValidationCheck
     checks = [
         ValidationCheck(v["check_name"], v["status"], v["message"]) for v in validation_results
     ]
 
-    from app.services.report_generator import ReportGenerator
     csv_content = ReportGenerator.generate_positions_csv(
         eod_date, positions, instructions, total_debit, total_credit, checks,
     )
@@ -233,8 +239,6 @@ async def get_bank_statements(
     if not results:
         raise HTTPException(status_code=404, detail=f"No bilateral settlements found for {eod_date}")
 
-    from app.services.bilateral_engine import BilateralEngine, BilateralResult
-
     bilateral_results = [
         BilateralResult(
             bank_a_id=r.bank_a_id,
@@ -287,10 +291,6 @@ async def download_clearing_summary_pdf(
     current_user: User = Depends(get_current_user),
 ):
     """Download a PDF clearing summary report showing all banks' net positions and bilateral netting."""
-    from fastapi.responses import StreamingResponse
-    import io
-    from app.services.file_generator import FileGenerator
-
     clearing_repo = ClearingRepo(db)
     bilateral_repo = BilateralRepo(db)
     settlement_repo = SettlementRepo(db)
@@ -302,7 +302,6 @@ async def download_clearing_summary_pdf(
     bilateral_results = await bilateral_repo.get_by_date(eod_date)
     file_record = await settlement_repo.get_by_date(eod_date)
 
-    from decimal import Decimal
     total_debit = file_record.total_debit if file_record else Decimal("0.00")
     total_credit = file_record.total_credit if file_record else Decimal("0.00")
 
@@ -353,13 +352,6 @@ async def download_all_pdfs_zip(
     current_user: User = Depends(get_current_user),
 ):
     """Download a ZIP containing the clearing summary PDF and all per-bank settlement PDFs."""
-    import io
-    import zipfile
-    from fastapi.responses import StreamingResponse
-    from decimal import Decimal
-    from app.services.bilateral_engine import BilateralEngine, BilateralResult
-    from app.services.file_generator import FileGenerator
-
     clearing_repo = ClearingRepo(db)
     bilateral_repo = BilateralRepo(db)
     settlement_repo = SettlementRepo(db)
@@ -374,7 +366,6 @@ async def download_all_pdfs_zip(
     total_debit = file_record.total_debit if file_record else Decimal("0.00")
     total_credit = file_record.total_credit if file_record else Decimal("0.00")
 
-    # Build summary PDF data
     bank_positions = [
         {
             "bank_code": cr.bank.bank_code,
@@ -401,7 +392,6 @@ async def download_all_pdfs_zip(
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        # Clearing summary PDF
         summary_bytes = FileGenerator.generate_clearing_summary_pdf(
             eod_date=eod_date,
             bank_positions=bank_positions,
@@ -411,7 +401,6 @@ async def download_all_pdfs_zip(
         )
         zf.writestr(f"clearing_summary_{eod_date}.pdf", summary_bytes)
 
-        # Per-bank statement PDFs (only if bilateral data exists)
         if bilateral_db_results:
             bilateral_results = [
                 BilateralResult(
@@ -459,20 +448,21 @@ async def download_all_pdfs_zip(
     )
 
 
-@router.get("/statements/{eod_date}/{bank_code}", response_model=BankStatementResponse)
-async def get_bank_statement(
+async def _resolve_bank_statement(
     eod_date: date,
     bank_code: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+    db: AsyncSession,
+) -> tuple[list[BilateralResult], tuple[int, str, str]]:
+    """Fetches bilateral data for the date and resolves the target bank by code.
+
+    Returns (bilateral_results, (bank_id, bank_code, bank_name)).
+    Raises 404 if no data exists for the date or the bank_code is not found.
+    """
     bilateral_repo = BilateralRepo(db)
     results = await bilateral_repo.get_by_date(eod_date)
 
     if not results:
         raise HTTPException(status_code=404, detail=f"No bilateral settlements found for {eod_date}")
-
-    from app.services.bilateral_engine import BilateralEngine, BilateralResult
 
     bilateral_results = [
         BilateralResult(
@@ -488,8 +478,7 @@ async def get_bank_statement(
         for r in results
     ]
 
-    # Find the target bank
-    target_bank = None
+    target_bank: tuple[int, str, str] | None = None
     for r in results:
         if r.bank_a.bank_code == bank_code:
             target_bank = (r.bank_a_id, r.bank_a.bank_code, r.bank_a.name)
@@ -499,12 +488,25 @@ async def get_bank_statement(
             break
 
     if not target_bank:
-        raise HTTPException(status_code=404, detail=f"Bank {bank_code} not found in settlements for {eod_date}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Bank {bank_code} not found in settlements for {eod_date}",
+        )
 
+    return bilateral_results, target_bank
+
+
+@router.get("/statements/{eod_date}/{bank_code}", response_model=BankStatementResponse)
+async def get_bank_statement(
+    eod_date: date,
+    bank_code: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    bilateral_results, target_bank = await _resolve_bank_statement(eod_date, bank_code, db)
     statement = BilateralEngine.generate_bank_statement(
         target_bank[0], target_bank[1], target_bank[2], bilateral_results
     )
-
     return BankStatementResponse(
         bank_id=statement.bank_id,
         bank_code=statement.bank_code,
@@ -535,47 +537,10 @@ async def download_bank_statement_pdf(
     current_user: User = Depends(get_current_user),
 ):
     """Download a PDF settlement statement for a specific bank."""
-    bilateral_repo = BilateralRepo(db)
-    results = await bilateral_repo.get_by_date(eod_date)
-
-    if not results:
-        raise HTTPException(status_code=404, detail=f"No bilateral settlements found for {eod_date}")
-
-    from app.services.bilateral_engine import BilateralEngine, BilateralResult
-    from app.services.file_generator import FileGenerator
-    import io
-
-    bilateral_results = [
-        BilateralResult(
-            bank_a_id=r.bank_a_id,
-            bank_a_code=r.bank_a.bank_code,
-            bank_a_name=r.bank_a.name,
-            bank_b_id=r.bank_b_id,
-            bank_b_code=r.bank_b.bank_code,
-            bank_b_name=r.bank_b.name,
-            bank_a_owes_b=r.bank_a_owes_b,
-            bank_b_owes_a=r.bank_b_owes_a,
-        )
-        for r in results
-    ]
-
-    # Find the target bank
-    target_bank = None
-    for r in results:
-        if r.bank_a.bank_code == bank_code:
-            target_bank = (r.bank_a_id, r.bank_a.bank_code, r.bank_a.name)
-            break
-        if r.bank_b.bank_code == bank_code:
-            target_bank = (r.bank_b_id, r.bank_b.bank_code, r.bank_b.name)
-            break
-
-    if not target_bank:
-        raise HTTPException(status_code=404, detail=f"Bank {bank_code} not found in settlements for {eod_date}")
-
+    bilateral_results, target_bank = await _resolve_bank_statement(eod_date, bank_code, db)
     statement = BilateralEngine.generate_bank_statement(
         target_bank[0], target_bank[1], target_bank[2], bilateral_results
     )
-
     breakdown_dicts = [
         {
             "bank_code": b.bank_code,
@@ -587,7 +552,6 @@ async def download_bank_statement_pdf(
         }
         for b in statement.breakdown
     ]
-
     pdf_bytes = FileGenerator.generate_bank_statement_pdf(
         eod_date=eod_date,
         bank_code=statement.bank_code,
@@ -597,9 +561,8 @@ async def download_bank_statement_pdf(
         net_position=statement.net_position,
         breakdown=breakdown_dicts,
     )
-
     filename = f"settlement_statement_{bank_code}_{eod_date}.pdf"
-    return _StreamingResponse(
+    return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
